@@ -45,13 +45,26 @@ void os_initialize()
     GetSystemInfo(&system_info);
     app.os.page_size = system_info.dwAllocationGranularity;
     app.os.cache_line_size = windows_get_cache_line_size();
+    app.os.logic_core_count = MAX(system_info.dwNumberOfProcessors, 1);
+
+    app.os.pixels_per_thread = 4096;
+
+    LARGE_INTEGER windows_clock_frequency;
+    QueryPerformanceFrequency(&windows_clock_frequency);
+    app.os.timer_frequency = windows_clock_frequency.QuadPart;
+
+    LARGE_INTEGER windows_begin_time;
+    QueryPerformanceCounter(&windows_begin_time);
+    app.os.timer_start_counter = windows_begin_time.QuadPart;
 
     app.temp_arena = arena_alloc();
+    app.static_arena = arena_alloc();
 }
 
 void os_shutdown()
 {
     arena_free(app.temp_arena);
+    arena_free(app.static_arena);
 }
 
 Arena* arena_alloc()
@@ -134,4 +147,172 @@ b32 os_create_folder(String path)
     }
 
     return result;
+}
+
+u64 os_get_time_counter()
+{
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    return now.QuadPart;
+}
+
+int windows_thread_main(void* thread_data)
+{
+    ThreadFn* fn = *(ThreadFn**)thread_data;
+    void* user_data = (ThreadFn**)thread_data + 1;
+
+    i32 ret = fn(user_data);
+
+    memory_free(thread_data);
+
+    return ret;
+}
+
+Thread os_thread_start(ThreadFn* fn, RawBuffer data)
+{
+    u32 size_needed = sizeof(ThreadFn*);
+    size_needed += data.size;
+
+    ThreadFn** thread_data = (ThreadFn**)memory_allocate(size_needed, true);
+    *thread_data = fn;
+
+    u8* user_data = (u8*)(thread_data + 1);
+    memory_copy(user_data, data.data, data.size);
+
+    HANDLE handle = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)windows_thread_main, thread_data, 0, NULL);
+
+    if (handle == NULL) {
+        memory_free(thread_data);
+        return {};
+    }
+
+    Thread thread{};
+    thread.value = (u64)handle;
+    return thread;
+}
+
+void os_thread_wait(Thread thread)
+{
+    if (thread.value) WaitForSingleObject((HANDLE)thread.value, INFINITE);
+    assert(thread.value && "The thread must be valid");
+}
+
+void os_thread_wait_array(Thread* threads, u32 count) {
+    for (i32 i = 0; i < count; ++i) {
+        os_thread_wait(threads[i]);
+    }
+}
+
+void os_thread_sleep(u64 millis) {
+    Sleep((DWORD)millis);
+}
+
+void os_thread_yield() {
+    SwitchToThread();
+}
+
+internal_fn void windows_configure_thread(HANDLE thread, u64 affinity_mask, i32 priority)
+{
+    // Put the thread in a dedicated hardware core
+    if (affinity_mask)
+    {
+        DWORD_PTR mask = affinity_mask;
+        DWORD_PTR res = SetThreadAffinityMask(thread, mask);
+        assert(res > 0);
+    }
+
+    // Set thread priority
+    {
+        BOOL res = SetThreadPriority(thread, priority);
+        assert(res != 0);
+    }
+}
+
+void os_thread_configure(Thread thread, u64 affinity_mask, ThreadPrority priority)
+{
+    u32 win_priority;
+
+    switch (priority)
+    {
+
+    case ThreadPrority_Highest:
+        win_priority = THREAD_PRIORITY_HIGHEST;
+        break;
+
+    case ThreadPrority_High:
+        win_priority = THREAD_PRIORITY_ABOVE_NORMAL;
+        break;
+
+    case ThreadPrority_Normal:
+        win_priority = THREAD_PRIORITY_NORMAL;
+    default:
+
+    case ThreadPrority_Low:
+        win_priority = THREAD_PRIORITY_BELOW_NORMAL;
+        break;
+
+    case ThreadPrority_Lowest:
+        win_priority = THREAD_PRIORITY_LOWEST;
+        break;
+    }
+
+    windows_configure_thread((HANDLE)thread.value, affinity_mask, win_priority);
+}
+
+u64 os_thread_get_id() {
+    return GetCurrentThreadId();
+}
+
+Semaphore os_semaphore_create(u32 initial_count, u32 max_count)
+{
+    HANDLE s = CreateSemaphoreExA(NULL, initial_count, max_count, NULL, 0, SEMAPHORE_ALL_ACCESS);
+    Semaphore sem{};
+    sem.value = (u64)s;
+    return sem;
+}
+
+void os_semaphore_wait(Semaphore semaphore, u32 millis)
+{
+    assert(semaphore.value);
+    if (semaphore.value == 0) return;
+
+    HANDLE s = (HANDLE)semaphore.value;
+    WaitForSingleObjectEx(s, millis, FALSE);
+}
+
+b32 os_semaphore_release(Semaphore semaphore, u32 count)
+{
+    assert(semaphore.value);
+    if (semaphore.value == 0) return FALSE;
+
+    HANDLE s = (HANDLE)semaphore.value;
+    return ReleaseSemaphore(s, count, 0) ? 1 : 0;
+}
+
+void os_semaphore_destroy(Semaphore semaphore)
+{
+    if (semaphore.value == 0) return;
+
+    HANDLE s = (HANDLE)semaphore.value;
+    CloseHandle(s);
+}
+
+u32 interlock_increment_u32(volatile u32* n) {
+    return InterlockedIncrement((volatile LONG*)n);
+}
+u32 interlock_decrement_u32(volatile u32* n) {
+    return InterlockedDecrement((volatile LONG*)n);
+}
+u32 interlock_exchange_u32(volatile u32* dst, u32 compare, u32 exchange) {
+    return InterlockedCompareExchange(dst, exchange, compare);
+}
+
+i32 interlock_increment_i32(volatile i32* n) {
+    return InterlockedIncrement((volatile LONG*)n);
+}
+i32 interlock_decrement_i32(volatile i32* n) {
+    return InterlockedDecrement((volatile LONG*)n);
+}
+i32 interlock_exchange_i32(volatile i32* dst, i32 compare, i32 exchange) {
+    return InterlockedCompareExchange((volatile LONG*)dst, exchange, compare);
 }

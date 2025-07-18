@@ -35,3 +35,34 @@ String string_format(Arena* arena, String text, ...)
 
 	return buffer;
 }
+
+String string_format_time(f64 seconds)
+{
+    if (seconds >= 10.0) {
+        return string_format(app.temp_arena, "%.2f sec", seconds);
+    }
+
+    f64 millis = seconds * 1000.0;
+
+    if (millis >= 10.0) {
+        return string_format(app.temp_arena, "%.2f ms", millis);
+    }
+
+    f64 micro = millis * 1000.0;
+
+    if (micro >= 10.0) {
+        return string_format(app.temp_arena, "%.2f us", micro);
+    }
+
+    f64 nano = micro * 1000.0;
+    return string_format(app.temp_arena, "%.2f ns", nano);
+}
+
+f64 timer_now()
+{
+    u64 freq = app.os.timer_frequency;
+    u64 start = app.os.timer_start_counter;
+
+    u64 ellapsed = os_get_time_counter() - start;
+    return (f64)ellapsed / (f64)freq;
+}

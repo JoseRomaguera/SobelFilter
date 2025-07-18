@@ -18,13 +18,16 @@
     <ClCompile Include="code\main.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
-    <ClCompile Include="code\image_loader.cpp">
+    <ClCompile Include="code\image_processing.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
     <ClCompile Include="code\os_windows.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
     <ClCompile Include="code\utils.cpp">
+      <Filter>Archivos de origen</Filter>
+    </ClCompile>
+    <ClCompile Include="code\task_system.cpp">
       <Filter>Archivos de origen</Filter>
     </ClCompile>
   </ItemGroup>

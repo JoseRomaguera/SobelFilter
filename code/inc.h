@@ -81,7 +81,40 @@ _defer<F> _defer_func(F f) {
 
 // UTILS
 
+#include <intrin.h>
+#define cpu_write_barrier() do { _WriteBarrier(); _mm_sfence(); } while(0)
+#define cpu_read_barrier() _ReadBarrier()
+#define cpu_general_barrier() do { cpu_read_barrier(); cpu_write_barrier(); } while(0)
+
+#define PROFILE_BEGIN(_name) \
+if (app.sett.enable_profiler) { \
+for (i32 i = 0; i < app.profiler_indent; ++i) printf(" "); \
+printf("-> %s\n", _name); \
+} \
+f64 _start_time = timer_now(); \
+const char* _profile_name = _name; \
+app.profiler_indent++
+
+#define PROFILE_END() do { \
+f64 _end_time = timer_now(); \
+f64 _ellapsed_time = _end_time - _start_time; \
+app.profiler_indent--; \
+if (app.sett.enable_profiler) { \
+for (i32 i = 0; i < app.profiler_indent; ++i) printf(" "); \
+printf("<- %s: %s\n", _profile_name, string_format_time(_ellapsed_time).data); \
+} \
+} while (0)
+
+#define PROFILE_SCOPE(_name) \
+PROFILE_BEGIN(_name); \
+DEFER( PROFILE_END() )
+
 struct Arena;
+
+struct RawBuffer {
+	void* data;
+	u64 size;
+};
 
 template<typename T>
 struct Array {
@@ -142,13 +175,23 @@ struct String {
 String string_copy_from_data(void* memory, u32 memory_size, String src);
 String string_copy(Arena* arena, String src);
 String string_format(Arena* arena, String text, ...);
+String string_format_time(f64 seconds);
+
+f64 timer_now();
 
 // OS LAYER
 
 #define memory_copy(dst, src, size) memcpy(dst, src, size)
 #define memory_zero(dst, size) memset(dst, 0, size)
 
-#define memory_allocate(size) malloc(size)
+inline_fn void* memory_allocate(u64 size, b32 zero = false) {
+	while (true) {
+		void* ptr = zero ? calloc(size, 1) : malloc(size);
+		if (ptr != NULL) return ptr;
+	}
+	return NULL;
+}
+
 #define memory_reallocate(ptr, size) realloc(ptr, size)
 #define memory_free(ptr) free(ptr)
 
@@ -171,6 +214,42 @@ void arena_pop_to(Arena* arena, u64 size);
 
 b32 os_remove_folder(String path);
 b32 os_create_folder(String path);
+
+u64 os_get_time_counter();
+
+struct Thread { u64 value; };
+struct Semaphore { u64 value; };
+
+typedef i32 ThreadFn(void*);
+
+enum ThreadPrority {
+	ThreadPrority_Highest,
+	ThreadPrority_High,
+	ThreadPrority_Normal,
+	ThreadPrority_Low,
+	ThreadPrority_Lowest
+};
+
+Thread os_thread_start(ThreadFn* fn, RawBuffer data);
+void   os_thread_wait(Thread thread);
+void   os_thread_wait_array(Thread* threads, u32 count);
+void   os_thread_sleep(u64 millis);
+void   os_thread_yield();
+void   os_thread_configure(Thread thread, u64 affinity_mask, ThreadPrority priority);
+u64    os_thread_get_id();
+
+Semaphore os_semaphore_create(u32 initial_count, u32 max_count);
+void os_semaphore_wait(Semaphore semaphore, u32 millis);
+b32  os_semaphore_release(Semaphore semaphore, u32 count);
+void os_semaphore_destroy(Semaphore semaphore);
+
+u32 interlock_increment_u32(volatile u32* n);
+u32 interlock_decrement_u32(volatile u32* n);
+u32 interlock_exchange_u32(volatile u32* dst, u32 compare, u32 exchange);
+
+i32 interlock_increment_i32(volatile i32* n);
+i32 interlock_decrement_i32(volatile i32* n);
+i32 interlock_exchange_i32(volatile i32* dst, i32 compare, i32 exchange);
 
 // APP
 
@@ -198,6 +277,7 @@ enum BlurDistance {
 struct AppGlobals {
 	struct {
 		b32 save_intermediates;
+		b32 enable_profiler;
 		u32 blur_iterations;
 		BlurDistance blur_distance;
 		f32 threshold;
@@ -206,16 +286,26 @@ struct AppGlobals {
 	struct {
 		u32 page_size;
 		u32 cache_line_size;
+		u32 logic_core_count;
+		u32 pixels_per_thread;
+		u64 timer_start_counter;
+		u64 timer_frequency;
 	} os;
 
 	u32 intermediate_image_saves_counter;
 	String intermediate_path;
+
+	i32 profiler_indent;
+
+	Arena* static_arena;
 	Arena* temp_arena;
 };
 
 global_var AppGlobals app;
 
 void app_save_intermediate(Image image, const char* name);
+
+// Image Processing
 
 u32 image_format_get_pixel_stride(ImageFormat format);
 u32 image_format_get_number_of_channels(ImageFormat format);
@@ -241,3 +331,24 @@ Image image_apply_2pass_kernel5x5(Image src, Image kernel, u32 normalize_factor)
 
 Image load_image(String path);
 b32 save_image(String path, Image image);
+
+// Task System
+
+#define TASK_DATA_SIZE 256
+
+typedef void TaskFn(u32 index, void* user_data);
+
+struct TaskContext
+{
+	volatile i32 completed;
+	u32 dispatched;
+};
+
+b32  task_initialize();
+void task_shutdown();
+
+void task_dispatch(TaskFn* fn, RawBuffer data, u32 task_count, TaskContext* context);
+void task_wait(TaskContext* context);
+b32  task_running(TaskContext* context);
+
+void task_join();
