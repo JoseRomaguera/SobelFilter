@@ -38,9 +38,6 @@ internal_fn void generate(const char* path, BlurDistance blur_distance, u32 blur
 
 	Image result = image_apply_threshold(sobel, app.sett.threshold);
 	app_save_intermediate(result, "result");
-
-	//if (save_image("images/result.png", result)) printf("Saved image\n");
-	//else printf("Can't save image\n");
 }
 
 void main()

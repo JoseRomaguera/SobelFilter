@@ -212,6 +212,9 @@ void* arena_push(Arena* arena, u64 size);
 void* arena_push_align(Arena* arena, u64 user_size, u64 alignment);
 void arena_pop_to(Arena* arena, u64 size);
 
+void* os_allocate_image_memory(u32 pixels, u32 pixel_stride);
+void  os_free_image_memory(void* ptr);
+
 b32 os_remove_folder(String path);
 b32 os_create_folder(String path);
 
@@ -290,6 +293,7 @@ struct AppGlobals {
 		u32 pixels_per_thread;
 		u64 timer_start_counter;
 		u64 timer_frequency;
+		u32 simd_granularity;
 	} os;
 
 	u32 intermediate_image_saves_counter;
@@ -352,3 +356,50 @@ void task_wait(TaskContext* context);
 b32  task_running(TaskContext* context);
 
 void task_join();
+
+// SIMD Utils
+
+inline_fn void avx256_f32_from_u8(__m256* result, __m256i bytes)
+{
+	// u8 -> u16
+	__m256i u16_0 = _mm256_cvtepu8_epi16(_mm256_extracti128_si256(bytes, 0));
+	__m256i u16_1 = _mm256_cvtepu8_epi16(_mm256_extracti128_si256(bytes, 1));
+
+	// u16 -> u32
+	__m256i u32_0 = _mm256_cvtepu16_epi32(_mm256_extracti128_si256(u16_0, 0));
+	__m256i u32_1 = _mm256_cvtepu16_epi32(_mm256_extracti128_si256(u16_0, 1));
+	__m256i u32_2 = _mm256_cvtepu16_epi32(_mm256_extracti128_si256(u16_1, 0));
+	__m256i u32_3 = _mm256_cvtepu16_epi32(_mm256_extracti128_si256(u16_1, 1));
+
+	// u32 -> f32
+	__m256 f0 = _mm256_cvtepi32_ps(u32_0);
+	__m256 f1 = _mm256_cvtepi32_ps(u32_1);
+	__m256 f2 = _mm256_cvtepi32_ps(u32_2);
+	__m256 f3 = _mm256_cvtepi32_ps(u32_3);
+
+	result[0] = f0;
+	result[1] = f1;
+	result[2] = f2;
+	result[3] = f3;
+}
+
+inline_fn __m256i avx256_u8_from_f32(__m256* floats)
+{
+	// f32 -> u32
+	__m256i u32_0 = _mm256_cvtps_epi32(floats[0]);
+	__m256i u32_1 = _mm256_cvtps_epi32(floats[1]);
+	__m256i u32_2 = _mm256_cvtps_epi32(floats[2]);
+	__m256i u32_3 = _mm256_cvtps_epi32(floats[3]);
+
+	// u32 -> u16
+	__m256i u16_0 = _mm256_packus_epi32(u32_0, u32_1);
+	__m256i u16_1 = _mm256_packus_epi32(u32_2, u32_3);
+	u16_0 = _mm256_permute4x64_epi64(u16_0, _MM_SHUFFLE(3, 1, 2, 0));
+	u16_1 = _mm256_permute4x64_epi64(u16_1, _MM_SHUFFLE(3, 1, 2, 0));
+
+	// u16 -> u8
+	__m256i bytes = _mm256_packus_epi16(u16_0, u16_1);
+	bytes = _mm256_permute4x64_epi64(bytes, _MM_SHUFFLE(3, 1, 2, 0));
+
+	return bytes;
+}

@@ -21,12 +21,10 @@ u32 image_calculate_size(Image image) {
 
 Image image_alloc(u32 width, u32 height, ImageFormat format)
 {
-	u32 size = width * height * image_format_get_pixel_stride(format);
-
 	Image img = {};
 	img.width = width;
 	img.height = height;
-	img._data = (u8*)memory_allocate(size);
+	img._data = (u8*)os_allocate_image_memory(width * height, image_format_get_pixel_stride(format));
 	img.format = format;
 
 	return img;
@@ -35,7 +33,7 @@ Image image_alloc(u32 width, u32 height, ImageFormat format)
 void image_free(Image image)
 {
 	if (image_is_invalid(image)) return;
-	memory_free(image._data);
+	os_free_image_memory(image._data);
 }
 
 // Common image operations with same dimensions
@@ -117,8 +115,37 @@ internal_fn void image_op_task(u32 index, void* _data)
 		}
 
 		Array<u8> d = image_get_data<u8>(dst);
-		for (u32 i = pixel_offset; i < end_pixel; ++i) {
-			d[i] = (u8)f32_clamp(0.f, 255.f, d[i] * data->mult);
+
+		u32 simd_step = app.os.simd_granularity;
+
+		__m256 v_mult = _mm256_set1_ps(data->mult);
+		__m256 v_255  = _mm256_set1_ps(255.0f);
+		__m256 v_zero = _mm256_set1_ps(0.0f);
+
+		for (u32 i = pixel_offset; i < end_pixel; i += simd_step)
+		{
+			u8* ptr = &d[i];
+			assert((u64)ptr % simd_step == 0);
+			__m256i bytes = _mm256_load_si256((__m256i*)ptr);
+
+			__m256 f[4];
+			avx256_f32_from_u8(f, bytes);
+
+			// Mult
+			f[0] = _mm256_mul_ps(f[0], v_mult);
+			f[1] = _mm256_mul_ps(f[1], v_mult);
+			f[2] = _mm256_mul_ps(f[2], v_mult);
+			f[3] = _mm256_mul_ps(f[3], v_mult);
+
+			// Clamp 0-255
+			f[0] = _mm256_min_ps(_mm256_max_ps(f[0], v_zero), v_255);
+			f[1] = _mm256_min_ps(_mm256_max_ps(f[1], v_zero), v_255);
+			f[2] = _mm256_min_ps(_mm256_max_ps(f[2], v_zero), v_255);
+			f[3] = _mm256_min_ps(_mm256_max_ps(f[3], v_zero), v_255);
+
+			bytes = avx256_u8_from_f32(f);
+
+			_mm256_store_si256((__m256i*)ptr, bytes);
 		}
 
 		return;
@@ -136,12 +163,47 @@ internal_fn void image_op_task(u32 index, void* _data)
 			Array<u8> s1 = image_get_data<u8>(src1);
 			Array<u8> d = image_get_data<u8>(dst);
 
-			for (u32 i = pixel_offset; i < end_pixel; ++i) {
-				f32 v0 = s0[i] * (1.f / 255.f);
-				f32 v1 = s1[i] * (1.f / 255.f);
+			u32 simd_step = app.os.simd_granularity;
 
-				f32 v = (v0 * (1.f - data->blend_factor)) + (v1 * data->blend_factor);
-				d[i] = (u8)(v * 255.f);
+			__m256 v_factor0 = _mm256_set1_ps(1.f - data->blend_factor);
+			__m256 v_factor1 = _mm256_set1_ps(data->blend_factor);
+
+			for (u32 i = pixel_offset; i < end_pixel; i += simd_step)
+			{
+				u8* ptr0 = &s0[i];
+				u8* ptr1 = &s1[i];
+				u8* ptr_dst = &d[i];
+				assert((u64)ptr0% simd_step == 0);
+				assert((u64)ptr1% simd_step == 0);
+				assert((u64)ptr_dst% simd_step == 0);
+
+				__m256i bytes0 = _mm256_load_si256((__m256i*)ptr0);
+				__m256i bytes1 = _mm256_load_si256((__m256i*)ptr1);
+
+				__m256 f0[4];
+				avx256_f32_from_u8(f0, bytes0);
+
+				__m256 f1[4];
+				avx256_f32_from_u8(f1, bytes1);
+
+				f0[0] = _mm256_mul_ps(f0[0], v_factor0);
+				f0[1] = _mm256_mul_ps(f0[1], v_factor0);
+				f0[2] = _mm256_mul_ps(f0[2], v_factor0);
+				f0[3] = _mm256_mul_ps(f0[3], v_factor0);
+
+				f1[0] = _mm256_mul_ps(f1[0], v_factor1);
+				f1[1] = _mm256_mul_ps(f1[1], v_factor1);
+				f1[2] = _mm256_mul_ps(f1[2], v_factor1);
+				f1[3] = _mm256_mul_ps(f1[3], v_factor1);
+
+				__m256 f[4];
+				f[0] = _mm256_add_ps(f0[0], f1[0]);
+				f[1] = _mm256_add_ps(f0[1], f1[1]);
+				f[2] = _mm256_add_ps(f0[2], f1[2]);
+				f[3] = _mm256_add_ps(f0[3], f1[3]);
+
+				__m256i bytes = avx256_u8_from_f32(f);
+				_mm256_store_si256((__m256i*)ptr_dst, bytes);
 			}
 
 			return;
@@ -158,9 +220,11 @@ internal_fn void image_op_task(u32 index, void* _data)
 
 		u8 threshold_u8 = (u8)(f32_clamp01(data->threshold) * 255.f);
 
-		for (u32 i = pixel_offset; i < end_pixel; ++i) {
-			u8 value = s[i];
-			d[i] = (value > threshold_u8) * 255;
+		for (u32 i = pixel_offset; i < end_pixel; i += 4) {
+			d[i + 0] = (s[i + 0] > threshold_u8) * 255;
+			d[i + 1] = (s[i + 1] > threshold_u8) * 255;
+			d[i + 2] = (s[i + 2] > threshold_u8) * 255;
+			d[i + 3] = (s[i + 3] > threshold_u8) * 255;
 		}
 	}
 }
@@ -630,16 +694,21 @@ Image load_image(String path)
 
     String path0 = string_copy(app.temp_arena, path);
 
+	u32 pixel_stride = 4;
+
     int w = 0, h = 0, c = 0;
-    void* data = stbi_load(path0.data, &w, &h, &c, 4);
+    void* data = stbi_load(path0.data, &w, &h, &c, pixel_stride);
 
     if (data == NULL) return IMAGE_INVALID;
 
+	DEFER(STBI_FREE(data));
+
     Image image = {};
     image.format = ImageFormat_RGBA8;
-    image._data = (u8*)data;
+    image._data = (u8*)os_allocate_image_memory(w * h, pixel_stride);
     image.width = w;
     image.height = h;
+	memory_copy(image._data, data, w * h * pixel_stride);
 
     return image;
 }

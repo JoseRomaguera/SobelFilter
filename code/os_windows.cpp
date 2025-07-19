@@ -47,7 +47,8 @@ void os_initialize()
     app.os.cache_line_size = windows_get_cache_line_size();
     app.os.logic_core_count = MAX(system_info.dwNumberOfProcessors, 1);
 
-    app.os.pixels_per_thread = 4096;
+    app.os.simd_granularity = 32; // AVX-256
+    app.os.pixels_per_thread = u64_divide_high(5000, 64) * 64;
 
     LARGE_INTEGER windows_clock_frequency;
     QueryPerformanceFrequency(&windows_clock_frequency);
@@ -127,6 +128,20 @@ void arena_pop_to(Arena* arena, u64 size)
 
     memory_zero(arena->data + size, free_bytes_size);
     arena->size = size;
+}
+
+void* os_allocate_image_memory(u32 pixels, u32 pixel_stride)
+{
+    // Extra memory to safely overflow the buffer using SIMD
+    u32 pixels_extra = u64_divide_high(app.os.simd_granularity, pixel_stride);
+    u64 size = (u64)(pixels + pixels_extra) * (u64)pixel_stride;
+    
+    return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+}
+
+void os_free_image_memory(void* ptr)
+{
+    VirtualFree(ptr, 0, MEM_RELEASE);
 }
 
 b32 os_remove_folder(String path)
