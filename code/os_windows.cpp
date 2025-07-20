@@ -48,7 +48,8 @@ void os_initialize()
     app.os.logic_core_count = MAX(system_info.dwNumberOfProcessors, 1);
 
     app.os.simd_granularity = 32; // AVX-256
-    app.os.pixels_per_thread = u64_divide_high(5000, 64) * 64;
+    app.os.pixels_per_thread = u32_divide_high(5000, 64) * 64;
+    app.os.pixels_padding = app.os.simd_granularity;
 
     LARGE_INTEGER windows_clock_frequency;
     QueryPerformanceFrequency(&windows_clock_frequency);
@@ -72,7 +73,7 @@ Arena* arena_alloc()
 {
 	Arena* arena = (Arena*)memory_allocate(sizeof(Arena));
 
-	u64 reserve_size = GB(8);
+	u64 reserve_size = GB(16); // Win64 has 256TB of virtual memory addresses!
     arena->reserved_pages = (u32)u64_divide_high(reserve_size, app.os.page_size);
 	arena->committed_pages = 0;
 	arena->data = (u8*)VirtualAlloc(NULL, (u64)arena->reserved_pages * (u64)app.os.page_size, MEM_RESERVE, PAGE_NOACCESS);
@@ -97,7 +98,7 @@ void* arena_push_align(Arena* arena, u64 user_size, u64 alignment)
     u64 aligned_size = user_size + align_offset;
 
     u64 new_size = arena->size + aligned_size;
-    u32 commited_pages_needed = u64_divide_high(new_size, app.os.page_size);
+    u32 commited_pages_needed = (u32)u64_divide_high(new_size, app.os.page_size);
 
     if (commited_pages_needed > arena->committed_pages)
     {
@@ -133,7 +134,7 @@ void arena_pop_to(Arena* arena, u64 size)
 void* os_allocate_image_memory(u32 pixels, u32 pixel_stride)
 {
     // Extra memory to safely overflow the buffer using SIMD
-    u32 pixels_extra = u64_divide_high(app.os.simd_granularity, pixel_stride);
+    u32 pixels_extra = u32_divide_high(app.os.pixels_padding, pixel_stride);
     u64 size = (u64)(pixels + pixels_extra) * (u64)pixel_stride;
     
     return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
@@ -186,7 +187,7 @@ int windows_thread_main(void* thread_data)
 Thread os_thread_start(ThreadFn* fn, RawBuffer data)
 {
     u32 size_needed = sizeof(ThreadFn*);
-    size_needed += data.size;
+    size_needed += (u32)data.size;
 
     ThreadFn** thread_data = (ThreadFn**)memory_allocate(size_needed, true);
     *thread_data = fn;
@@ -213,69 +214,13 @@ void os_thread_wait(Thread thread)
 }
 
 void os_thread_wait_array(Thread* threads, u32 count) {
-    for (i32 i = 0; i < count; ++i) {
+    for (u32 i = 0; i < count; ++i) {
         os_thread_wait(threads[i]);
     }
 }
 
-void os_thread_sleep(u64 millis) {
-    Sleep((DWORD)millis);
-}
-
 void os_thread_yield() {
     SwitchToThread();
-}
-
-internal_fn void windows_configure_thread(HANDLE thread, u64 affinity_mask, i32 priority)
-{
-    // Put the thread in a dedicated hardware core
-    if (affinity_mask)
-    {
-        DWORD_PTR mask = affinity_mask;
-        DWORD_PTR res = SetThreadAffinityMask(thread, mask);
-        assert(res > 0);
-    }
-
-    // Set thread priority
-    {
-        BOOL res = SetThreadPriority(thread, priority);
-        assert(res != 0);
-    }
-}
-
-void os_thread_configure(Thread thread, u64 affinity_mask, ThreadPrority priority)
-{
-    u32 win_priority;
-
-    switch (priority)
-    {
-
-    case ThreadPrority_Highest:
-        win_priority = THREAD_PRIORITY_HIGHEST;
-        break;
-
-    case ThreadPrority_High:
-        win_priority = THREAD_PRIORITY_ABOVE_NORMAL;
-        break;
-
-    case ThreadPrority_Normal:
-        win_priority = THREAD_PRIORITY_NORMAL;
-    default:
-
-    case ThreadPrority_Low:
-        win_priority = THREAD_PRIORITY_BELOW_NORMAL;
-        break;
-
-    case ThreadPrority_Lowest:
-        win_priority = THREAD_PRIORITY_LOWEST;
-        break;
-    }
-
-    windows_configure_thread((HANDLE)thread.value, affinity_mask, win_priority);
-}
-
-u64 os_thread_get_id() {
-    return GetCurrentThreadId();
 }
 
 Semaphore os_semaphore_create(u32 initial_count, u32 max_count)
@@ -320,14 +265,4 @@ u32 interlock_decrement_u32(volatile u32* n) {
 }
 u32 interlock_exchange_u32(volatile u32* dst, u32 compare, u32 exchange) {
     return InterlockedCompareExchange(dst, exchange, compare);
-}
-
-i32 interlock_increment_i32(volatile i32* n) {
-    return InterlockedIncrement((volatile LONG*)n);
-}
-i32 interlock_decrement_i32(volatile i32* n) {
-    return InterlockedDecrement((volatile LONG*)n);
-}
-i32 interlock_exchange_i32(volatile i32* dst, i32 compare, i32 exchange) {
-    return InterlockedCompareExchange((volatile LONG*)dst, exchange, compare);
 }

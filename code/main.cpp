@@ -6,6 +6,9 @@ internal_fn void generate(const char* path, BlurDistance blur_distance, u32 blur
 {
 	PROFILE_SCOPE("Generate");
 
+	// Reset Temp Arena
+	arena_pop_to(app.temp_arena, 0);
+
 	app.sett.blur_distance = blur_distance;
 	app.sett.blur_iterations = blur_iterations;
 	app.sett.threshold = threshold;
@@ -25,7 +28,7 @@ internal_fn void generate(const char* path, BlurDistance blur_distance, u32 blur
 	DEFER(image_free(gray));
 
 	Image blur = gray;
-	for (int it = 0; it < app.sett.blur_iterations; ++it) {
+	for (u32 it = 0; it < app.sett.blur_iterations; ++it) {
 		Image new_blur = image_apply_gaussian_blur(blur, app.sett.blur_distance);
 		app_save_intermediate(new_blur, "blur");
 		if (it != 0) image_free(blur);
@@ -40,7 +43,7 @@ internal_fn void generate(const char* path, BlurDistance blur_distance, u32 blur
 	app_save_intermediate(result, "result");
 }
 
-void main()
+int main()
 {
 	os_initialize();
 	app.sett.save_intermediates = true;
@@ -49,7 +52,7 @@ void main()
 
 	PROFILE_BEGIN("Main");
 
-	if (!task_initialize()) return;
+	if (!task_initialize()) return -1;
 
 	os_remove_folder(app.intermediate_path);
 	os_create_folder(app.intermediate_path);
@@ -65,15 +68,18 @@ void main()
 	PROFILE_END();
 
 	os_shutdown();
+	return 0;
 }
 
-void app_save_intermediate(Image image, const char* name)
+void app_save_intermediate(Image image, String name)
 {
 	if (!app.sett.save_intermediates) return;
 
-	String path = string_format(app.temp_arena, "%s/%u_%s.png", app.intermediate_path.data, app.intermediate_image_saves_counter++, name);
+	const char* cname = string_copy(app.temp_arena, name).data;
 
-	if (save_image(path, image)) printf("Saved intermediate: %s\n", name);
+	String path = string_format(app.temp_arena, "%s/%u_%s.png", app.intermediate_path.data, app.intermediate_image_saves_counter++, cname);
+
+	if (save_image(path, image)) printf("Saved intermediate: %s\n", cname);
 	else printf("Can't save intermediate image\n");
 }
 

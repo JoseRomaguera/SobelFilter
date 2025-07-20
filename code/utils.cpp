@@ -1,6 +1,12 @@
 #include "inc.h"
 
-String string_copy_from_data(void* memory, u32 memory_size, String src)
+u32 cstring_size(const char* str) {
+    u32 size = 0u;
+    while (*str++) ++size;
+    return size;
+}
+
+String string_copy_from_data(void* memory, u64 memory_size, String src)
 {
     u64 size = MIN(memory_size, src.size);
     memory_copy(memory, src.data, size);
@@ -17,7 +23,7 @@ String string_copy_from_data(void* memory, u32 memory_size, String src)
 
 String string_copy(Arena* arena, String src)
 {
-	u32 data_size = src.size + 1;
+	u64 data_size = src.size + 1;
 	void* data = arena_push(arena, data_size);
 	return string_copy_from_data(data, data_size, src);
 }

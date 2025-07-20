@@ -52,7 +52,7 @@ b32 task_initialize()
 		return false;
 	}
 
-	for (i32 t = 0; t < thread_count; ++t)
+	for (u32 t = 0; t < thread_count; ++t)
 	{
 		TaskThreadData* thread_data = task_system->thread_data + t;
 		thread_data->id = t;
@@ -65,10 +65,6 @@ b32 task_initialize()
 			task_system->running = false;
 			return false;
 		}
-
-		// Config thread
-		u64 affinity_mask = 0;
-		os_thread_configure(thread_data->thread, affinity_mask, ThreadPrority_Normal);
 	}
 
 	task_system->thread_count = thread_count;
@@ -88,7 +84,7 @@ void task_shutdown()
 	task_system->running = false;
 
 	Thread* threads = (Thread*)arena_push(app.temp_arena, sizeof(Thread) * task_system->thread_count);
-	for (i32 i = 0; i < task_system->thread_count; ++i)
+	for (u32 i = 0; i < task_system->thread_count; ++i)
 		threads[i] = task_system->thread_data[i].thread;
 
 	os_semaphore_release(task_system->semaphore, task_system->thread_count);
@@ -164,7 +160,7 @@ void task_dispatch(TaskFn* fn, RawBuffer data, u32 task_count, TaskContext* cont
 	assert(data.size <= TASK_DATA_SIZE && "The task data size is too large");
 	assert(fn != NULL && "Null task function");
 
-	for (i32 i = 0; i < task_count; ++i) {
+	for (u32 i = 0; i < task_count; ++i) {
 		_task_add_queue(fn, data, i, context);
 	}
 

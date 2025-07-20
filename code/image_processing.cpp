@@ -233,12 +233,12 @@ Image image_copy(Image src, ImageFormat format)
 {
 	PROFILE_SCOPE("Image Copy");
 
-	if (image_is_invalid(src)) return IMAGE_INVALID;
+	if (image_is_invalid(src)) return IMG_INVALID;
 
 	Image dst = image_alloc(src.width, src.height, format);
 
 	u32 pixel_count = src.width * src.height;
-	u32 task_count = u64_divide_high(pixel_count, app.os.pixels_per_thread);
+	u32 task_count = u32_divide_high(pixel_count, app.os.pixels_per_thread);
 
 	TaskContext ctx = {};
 
@@ -248,7 +248,7 @@ Image image_copy(Image src, ImageFormat format)
 	data.height = src.height;
 	data.dst = dst;
 	data.src0 = src;
-	data.src1 = IMAGE_INVALID;
+	data.src1 = IMG_INVALID;
 	data.write_count = app.os.pixels_per_thread;
 
 	task_dispatch(image_op_task, { &data, sizeof(data) }, task_count, &ctx);
@@ -262,7 +262,7 @@ void image_mult(Image dst, f32 mult)
 	PROFILE_SCOPE("Image Mult");
 
 	u32 pixel_count = dst.width * dst.height;
-	u32 task_count = u64_divide_high(pixel_count, app.os.pixels_per_thread);
+	u32 task_count = u32_divide_high(pixel_count, app.os.pixels_per_thread);
 
 	TaskContext ctx = {};
 
@@ -272,8 +272,8 @@ void image_mult(Image dst, f32 mult)
 	data.width = dst.width;
 	data.height = dst.height;
 	data.dst = dst;
-	data.src0 = IMAGE_INVALID;
-	data.src1 = IMAGE_INVALID;
+	data.src0 = IMG_INVALID;
+	data.src1 = IMG_INVALID;
 	data.write_count = app.os.pixels_per_thread;
 
 	task_dispatch(image_op_task, { &data, sizeof(data) }, task_count, &ctx);
@@ -285,7 +285,7 @@ Image image_apply_sobel_convolution(Image src)
 	PROFILE_SCOPE("Sobel Convolution");
 
 	if (src.format != ImageFormat_I8) {
-		return IMAGE_INVALID;
+		return IMG_INVALID;
 	}
 
 	const u32 normalize_factor = 1;
@@ -293,34 +293,34 @@ Image image_apply_sobel_convolution(Image src)
 	Image kernel = image_alloc(3, 3, ImageFormat_I8);
 
 	Array<i8> k = image_get_data<i8>(kernel);
-	k[0 + 0 * kernel.width] = -1;
-	k[1 + 0 * kernel.width] = 0;
-	k[2 + 0 * kernel.width] = 1;
+	k[IMG_INDEX(kernel, 0, 0)] = -1;
+	k[IMG_INDEX(kernel, 1, 0)] = 0;
+	k[IMG_INDEX(kernel, 2, 0)] = 1;
 
-	k[0 + 1 * kernel.width] = -2;
-	k[1 + 1 * kernel.width] = 0;
-	k[2 + 1 * kernel.width] = +2;
+	k[IMG_INDEX(kernel, 0, 1)] = -2;
+	k[IMG_INDEX(kernel, 1, 1)] = 0;
+	k[IMG_INDEX(kernel, 2, 1)] = +2;
 
-	k[0 + 2 * kernel.width] = -1;
-	k[1 + 2 * kernel.width] = 0;
-	k[2 + 2 * kernel.width] = 1;
+	k[IMG_INDEX(kernel, 0, 2)] = -1;
+	k[IMG_INDEX(kernel, 1, 2)] = 0;
+	k[IMG_INDEX(kernel, 2, 2)] = 1;
 
 	Image x_axis = image_apply_1pass_kernel3x3(src, kernel, normalize_factor, false);
 	app_save_intermediate(x_axis, "x_axis_sobel");
 	DEFER(image_free(x_axis));
 
 	k = image_get_data<i8>(kernel);
-	k[0 + 0 * kernel.width] = -1;
-	k[1 + 0 * kernel.width] = -2;
-	k[2 + 0 * kernel.width] = -1;
+	k[IMG_INDEX(kernel, 0, 0)] = -1;
+	k[IMG_INDEX(kernel, 1, 0)] = -2;
+	k[IMG_INDEX(kernel, 2, 0)] = -1;
 
-	k[0 + 1 * kernel.width] = 0;
-	k[1 + 1 * kernel.width] = 0;
-	k[2 + 1 * kernel.width] = 0;
+	k[IMG_INDEX(kernel, 0, 1)] = 0;
+	k[IMG_INDEX(kernel, 1, 1)] = 0;
+	k[IMG_INDEX(kernel, 2, 1)] = 0;
 
-	k[0 + 2 * kernel.width] = 1;
-	k[1 + 2 * kernel.width] = 2;
-	k[2 + 2 * kernel.width] = 1;
+	k[IMG_INDEX(kernel, 0, 2)] = 1;
+	k[IMG_INDEX(kernel, 1, 2)] = 2;
+	k[IMG_INDEX(kernel, 2, 2)] = 1;
 
 	Image y_axis = image_apply_1pass_kernel3x3(src, kernel, normalize_factor, false);
 	app_save_intermediate(y_axis, "y_axis_sobel");
@@ -337,13 +337,13 @@ Image image_apply_threshold(Image src, f32 threshold)
 	PROFILE_SCOPE("Threshold");
 
 	if (src.format != ImageFormat_I8) {
-		return IMAGE_INVALID;
+		return IMG_INVALID;
 	}
 
 	Image dst = image_alloc(src.width, src.height, ImageFormat_I8);
 
 	u32 pixel_count = dst.width * dst.height;
-	u32 task_count = u64_divide_high(pixel_count, app.os.pixels_per_thread);
+	u32 task_count = u32_divide_high(pixel_count, app.os.pixels_per_thread);
 
 	TaskContext ctx = {};
 
@@ -354,7 +354,7 @@ Image image_apply_threshold(Image src, f32 threshold)
 	data.height = src.height;
 	data.dst = dst;
 	data.src0 = src;
-	data.src1 = IMAGE_INVALID;
+	data.src1 = IMG_INVALID;
 	data.write_count = app.os.pixels_per_thread;
 
 	task_dispatch(image_op_task, { &data, sizeof(data) }, task_count, &ctx);
@@ -368,24 +368,24 @@ Image image_apply_gaussian_blur(Image src, BlurDistance distance)
 	PROFILE_SCOPE("Gaussian Blur");
 
 	if (src.format != ImageFormat_I8) {
-		return IMAGE_INVALID;
+		return IMG_INVALID;
 	}
 
 	if (distance == BlurDistance_3) {
 		Image kernel = image_alloc(3, 3, ImageFormat_I8);
 
 		Array<i8> k = image_get_data<i8>(kernel);
-		k[0 + 0 * kernel.width] = 1;
-		k[1 + 0 * kernel.width] = 2;
-		k[2 + 0 * kernel.width] = 1;
+		k[IMG_INDEX(kernel, 0, 0)] = 1;
+		k[IMG_INDEX(kernel, 1, 0)] = 2;
+		k[IMG_INDEX(kernel, 2, 0)] = 1;
 
-		k[0 + 1 * kernel.width] = 2;
-		k[1 + 1 * kernel.width] = 4;
-		k[2 + 1 * kernel.width] = 2;
+		k[IMG_INDEX(kernel, 0, 1)] = 2;
+		k[IMG_INDEX(kernel, 1, 1)] = 4;
+		k[IMG_INDEX(kernel, 2, 1)] = 2;
 
-		k[0 + 2 * kernel.width] = 1;
-		k[1 + 2 * kernel.width] = 2;
-		k[2 + 2 * kernel.width] = 1;
+		k[IMG_INDEX(kernel, 0, 2)] = 1;
+		k[IMG_INDEX(kernel, 1, 2)] = 2;
+		k[IMG_INDEX(kernel, 2, 2)] = 1;
 
 		return image_apply_1pass_kernel3x3(src, kernel, 16, true);
 	}
@@ -404,7 +404,7 @@ Image image_apply_gaussian_blur(Image src, BlurDistance distance)
 	}
 
 	assert(0);
-	return IMAGE_INVALID;
+	return IMG_INVALID;
 }
 
 Image image_blend(Image src0, Image src1, f32 factor)
@@ -413,18 +413,18 @@ Image image_blend(Image src0, Image src1, f32 factor)
 
 	if (src0.width != src1.width || src0.height != src1.height) {
 		assert(0);
-		return IMAGE_INVALID;
+		return IMG_INVALID;
 	}
 
 	if (src0.format != src1.format) {
 		assert(0);
-		return IMAGE_INVALID;
+		return IMG_INVALID;
 	}
 
 	Image dst = image_alloc(src0.width, src0.height, src0.format);
 
 	u32 pixel_count = dst.width * dst.height;
-	u32 task_count = u64_divide_high(pixel_count, app.os.pixels_per_thread);
+	u32 task_count = u32_divide_high(pixel_count, app.os.pixels_per_thread);
 
 	TaskContext ctx = {};
 
@@ -533,18 +533,20 @@ internal_fn void image_apply_kernel_task(u32 index, void* _data)
 		}
 
 		Kernel3x3Indices off;
-		off.lt = -1 - 1 * src.width;
-		off.ct = +0 - 1 * src.width;
-		off.rt = +1 - 1 * src.width;
-		off.lc = -1 + 0 * src.width;
-		off.cc = +0 + 0 * src.width;
-		off.rc = +1 + 0 * src.width;
-		off.lb = -1 + 1 * src.width;
-		off.cb = +0 + 1 * src.width;
-		off.rb = +1 + 1 * src.width;
+		off.lt = IMG_INDEX(src, -1, -1);
+		off.ct = IMG_INDEX(src, +0, -1);
+		off.rt = IMG_INDEX(src, +1, -1);
+		off.lc = IMG_INDEX(src, -1, +0);
+		off.cc = IMG_INDEX(src, +0, +0);
+		off.rc = IMG_INDEX(src, +1, +0);
+		off.lb = IMG_INDEX(src, -1, +1);
+		off.cb = IMG_INDEX(src, +0, +1);
+		off.rb = IMG_INDEX(src, +1, +1);
 
 		for (u32 base = pixel_offset; base < end_pixel; ++base) {
-			d[base] = sample_1pass_kernel3x3(s, base, off, k, data->normalize_factor);
+			u32 x = base % src.width;
+			b32 not_in_border = x != 0 && x != src.width - 1;
+			d[base] = not_in_border ? sample_1pass_kernel3x3(s, base, off, k, data->normalize_factor) : d[base];
 		}
 	}
 	else if (data->mode == 1 || data->mode == 2)
@@ -568,19 +570,27 @@ internal_fn void image_apply_kernel_task(u32 index, void* _data)
 			def_off.v[4] = 2;
 
 			for (u32 base = pixel_offset; base < end_pixel; ++base) {
-				d[base] = sample_2pass_kernel5x5(s, base, def_off, k, data->normalize_factor);
+				u32 x = base % src.width;
+				b32 not_in_border = x != 0 && x != src.width - 1;
+				d[base] = not_in_border ? sample_2pass_kernel5x5(s, base, def_off, k, data->normalize_factor) : d[base];
 			}
 		}
-		else if (data->mode == 2) {
+		else if (data->mode == 2)
+		{
+			// TODO: Hitting a lot of cache misses given the vertical access. Try to change the
+			// image format or a transpose, that may or not help with performance.
+
 			Kernel5Indices def_off;
-			def_off.v[0] = 0 + -2 * src.width;
-			def_off.v[1] = 0 + -1 * src.width;
-			def_off.v[2] = 0 + 0 * src.width;
-			def_off.v[3] = 0 + 1 * src.width;
-			def_off.v[4] = 0 + 2 * src.width;
+			def_off.v[0] = IMG_INDEX(src, 0, -2);
+			def_off.v[1] = IMG_INDEX(src, 0, -1);
+			def_off.v[2] = IMG_INDEX(src, 0, 0);
+			def_off.v[3] = IMG_INDEX(src, 0, 1);
+			def_off.v[4] = IMG_INDEX(src, 0, 2);
 
 			for (u32 base = pixel_offset; base < end_pixel; ++base) {
-				d[base] = sample_2pass_kernel5x5(s, base, def_off, k, data->normalize_factor);
+				u32 x = base % src.width;
+				b32 not_in_border = x != 0 && x != src.width - 1;
+				d[base] = not_in_border ? sample_2pass_kernel5x5(s, base, def_off, k, data->normalize_factor) : d[base];
 			}
 		}
 	}
@@ -591,11 +601,11 @@ Image image_apply_1pass_kernel3x3(Image src, Image kernel, u32 normalize_factor,
 	PROFILE_SCOPE("1pass kernel3x3");
 
 	if (src.format != ImageFormat_I8) {
-		return IMAGE_INVALID;
+		return IMG_INVALID;
 	}
 
 	if (kernel.format != ImageFormat_I8 || kernel.width != 3 || kernel.height != 3) {
-		return IMAGE_INVALID;
+		return IMG_INVALID;
 	}
 
 	Image dst;
@@ -609,7 +619,7 @@ Image image_apply_1pass_kernel3x3(Image src, Image kernel, u32 normalize_factor,
 	}
 
 	u32 pixel_count = (src.width - 2) * (src.height - 2);
-	u32 task_count = u64_divide_high(pixel_count, app.os.pixels_per_thread);
+	u32 task_count = u32_divide_high(pixel_count, app.os.pixels_per_thread);
 
 	TaskContext ctx = {};
 
@@ -632,11 +642,11 @@ Image image_apply_2pass_kernel5x5(Image src, Image kernel, u32 normalize_factor)
 	PROFILE_SCOPE("2pass kernel5x5");
 
 	if (src.format != ImageFormat_I8) {
-		return IMAGE_INVALID;
+		return IMG_INVALID;
 	}
 
 	if (kernel.format != ImageFormat_I8 || kernel.width != 5 || kernel.height != 1) {
-		return IMAGE_INVALID;
+		return IMG_INVALID;
 	}
 
 	Image inter = image_copy(src, src.format);
@@ -645,7 +655,7 @@ Image image_apply_2pass_kernel5x5(Image src, Image kernel, u32 normalize_factor)
 	Image dst = image_copy(src, src.format);
 
 	u32 pixel_count = (src.width - 4) * (src.height - 4);
-	u32 task_count = u64_divide_high(pixel_count, app.os.pixels_per_thread);
+	u32 task_count = u32_divide_high(pixel_count, app.os.pixels_per_thread);
 
 	ImageApplyKernel_Task data = {};
 	data.kernel = kernel;
@@ -683,10 +693,24 @@ Image image_apply_2pass_kernel5x5(Image src, Image kernel, u32 normalize_factor)
 #define STBI_REALLOC_SIZED(old_ptr, old_size, new_size) memory_reallocate(old_ptr, new_size)
 #define STBI_REALLOC(old_ptr, new_size) memory_reallocate(old_ptr, new_size)
 #define STB_IMAGE_IMPLEMENTATION
+
+#define STBIW_ASSERT(x) assert(x)
+#define STBIW_MALLOC(size) memory_allocate(size)
+#define STBIW_FREE(ptr) memory_free(ptr)
+#define STBIW_REALLOC_SIZED(old_ptr, old_size, new_size) memory_reallocate(old_ptr, new_size)
+#define STBIW_REALLOC(old_ptr, new_size) memory_reallocate(old_ptr, new_size)
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+
+#pragma warning(push, 0) 
+#pragma warning(disable:26451)
+#pragma warning(disable:26819)
+#pragma warning(disable:6262)
+#pragma warning(disable:6308)
 
 #include "external/stbi_lib.h"
 #include "external/stb_image_write.h"
+
+#pragma warning(pop) 
 
 Image load_image(String path)
 {
@@ -699,7 +723,7 @@ Image load_image(String path)
     int w = 0, h = 0, c = 0;
     void* data = stbi_load(path0.data, &w, &h, &c, pixel_stride);
 
-    if (data == NULL) return IMAGE_INVALID;
+    if (data == NULL) return IMG_INVALID;
 
 	DEFER(STBI_FREE(data));
 
